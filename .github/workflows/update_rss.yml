@@ -1,0 +1,37 @@
+name: Update Telegram RSS
+
+on:
+  schedule:
+    - cron: '0 * * * *' # Запуск кожну годину (хвилина 0)
+  workflow_dispatch: # Дозволяє запускати скрипт вручну кнопкою в інтерфейсі
+
+permissions:
+  contents: write # Дозвіл для бота записувати оновлений XML файл у репозиторій
+
+jobs:
+  update-rss:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Перевірка коду (Checkout)
+      uses: actions/checkout@v4
+
+    - name: Налаштування Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Встановлення залежностей
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Запуск скрипта
+      run: python tg_to_rss.py
+
+    - name: Збереження змін у репозиторій
+      run: |
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        git add telegram_feed.xml
+        git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update RSS feed" && git push)
