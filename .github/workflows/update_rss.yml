@@ -2,7 +2,7 @@ name: Update Telegram RSS
 
 on:
   schedule:
-    - cron: '0 * * * *' # Запуск кожну годину (хвилина 0)
+    - cron: '23 * * * *' # Запуск кожну годину (хвилина 0)
   workflow_dispatch: # Дозволяє запускати скрипт вручну кнопкою в інтерфейсі
 
 permissions:
