@@ -100,18 +100,25 @@ def telegram_to_fetchrss_style(channel_username, output_file="telegram_feed.xml"
             html_content += f'<img src="{img_url}" /><br/>'
             
         if text_div:
+            # 1. Зберігаємо оригінальний HTML для тіла поста
             html_content += "".join([str(c) for c in text_div.contents])
             
-            # Створюємо ізольовану копію тексту для очищення заголовка
+            # 2. Створюємо окрему копію для формування чистого заголовка
             temp_soup = BeautifulSoup(str(text_div), "html.parser")
             
-            # ФІКС ТУТ: Знаходимо і видаляємо блоки цитування відповідей (наприклад, .tgme_widget_message_reply)
-            for reply_block in temp_soup.find_all(class_=re.compile(r"reply")):
-                reply_block.decompose()
+            # РАДИКАЛЬНИЙ ФІКС: Знаходимо БУДЬ-ЯКІ згадки reply в класах або тегах і повністю їх знищуємо
+            for reply_element in temp_soup.find_all(attrs={"class": re.compile(r"reply", re.I)}):
+                reply_element.decompose()
+                
+            # Про всяк випадок додатково шукаємо посилання на інші пости чату (це теж структура реплаю)
+            for reply_link in temp_soup.find_all("a", class_="tgme_widget_message_reply"):
+                reply_link.decompose()
             
+            # Заміняємо переноси рядків
             for br in temp_soup.find_all("br"):
                 br.replace_with("\n")
             
+            # Отримуємо чистий текст, де залишився ТІЛЬКИ твій новий пост
             plain_text = temp_soup.get_text()
         else:
             plain_text = "Зображення"
