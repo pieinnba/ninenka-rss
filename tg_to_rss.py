@@ -73,7 +73,8 @@ def telegram_to_fetchrss_style(channel_username, output_file="telegram_feed.xml"
 
     posts = soup.find_all("div", class_="tgme_widget_message")
     
-    for post in posts:
+    # ФІКС ТУТ: додано reversed(posts), щоб спочатку оброблялися найновіші повідомлення
+    for post in reversed(posts):
         if "service_message" in post.get("class", []):
             continue
             
@@ -100,20 +101,16 @@ def telegram_to_fetchrss_style(channel_username, output_file="telegram_feed.xml"
             html_content += f'<img src="{img_url}" /><br/>'
             
         if text_div:
-            # 1. Зберігаємо HTML для тіла поста
             html_content += "".join([str(c) for c in text_div.contents])
             
-            # 2. ФІКС ТУТ: Робимо ізольовану копію тексту та міняємо теги <br> на \n
             temp_soup = BeautifulSoup(str(text_div), "html.parser")
             for br in temp_soup.find_all("br"):
                 br.replace_with("\n")
             
-            # Тепер збираємо текст — емодзі та слова більше не розклеюються
             plain_text = temp_soup.get_text()
         else:
             plain_text = "Зображення"
             
-        # Заголовок отримає весь перший рядок разом з емодзі та текстом
         item_title = get_clean_title(plain_text)
             
         time_tag = post.find("time")
@@ -143,8 +140,8 @@ def telegram_to_fetchrss_style(channel_username, output_file="telegram_feed.xml"
     tree = ET.ElementTree(rss)
     ET.indent(tree, space="  ", level=0)
     tree.write(output_file, encoding="utf-8", xml_declaration=True)
-    print(f"Успішно оновлено! Файл збережено у: {output_file}")
+    print(f"Порядок змінено! Файл збережено у: {output_file}")
 
 if __name__ == "__main__":
-    TARGET_CHANNEL = "durov" 
+    TARGET_CHANNEL = "ninenka" 
     telegram_to_fetchrss_style(TARGET_CHANNEL, output_file="telegram_feed.xml")
