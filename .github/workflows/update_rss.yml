@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write # Дозвіл для бота записувати оновлений XML файл у репозиторій
+  id-token: write   # Дозвіл для авторизації деплою
 
 jobs:
   update-rss:
