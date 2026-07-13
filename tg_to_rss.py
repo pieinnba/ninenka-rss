@@ -73,7 +73,6 @@ def telegram_to_fetchrss_style(channel_username, output_file="telegram_feed.xml"
 
     posts = soup.find_all("div", class_="tgme_widget_message")
     
-    # ФІКС ТУТ: додано reversed(posts), щоб спочатку оброблялися найновіші повідомлення
     for post in reversed(posts):
         if "service_message" in post.get("class", []):
             continue
@@ -103,7 +102,13 @@ def telegram_to_fetchrss_style(channel_username, output_file="telegram_feed.xml"
         if text_div:
             html_content += "".join([str(c) for c in text_div.contents])
             
+            # Створюємо ізольовану копію тексту для очищення заголовка
             temp_soup = BeautifulSoup(str(text_div), "html.parser")
+            
+            # ФІКС ТУТ: Знаходимо і видаляємо блоки цитування відповідей (наприклад, .tgme_widget_message_reply)
+            for reply_block in temp_soup.find_all(class_=re.compile(r"reply")):
+                reply_block.decompose()
+            
             for br in temp_soup.find_all("br"):
                 br.replace_with("\n")
             
@@ -140,7 +145,7 @@ def telegram_to_fetchrss_style(channel_username, output_file="telegram_feed.xml"
     tree = ET.ElementTree(rss)
     ET.indent(tree, space="  ", level=0)
     tree.write(output_file, encoding="utf-8", xml_declaration=True)
-    print(f"Порядок змінено! Файл збережено у: {output_file}")
+    print(f"Готово! Заголовки очищено від реплаїв. Файл збережено у: {output_file}")
 
 if __name__ == "__main__":
     TARGET_CHANNEL = "ninenka" 
