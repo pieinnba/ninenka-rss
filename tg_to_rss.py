@@ -9,12 +9,15 @@ def get_clean_title(text):
     if not text:
         return "Новий пост"
     
-    # Беремо весь текст суворо до першого справжнього переходу на новий рядок
+    # Беремо перший абзац (до переносу рядка)
     first_line = text.split("\n")[0].strip()
     
+    if len(first_line) > 80:
+        first_line = first_line[:80] + "..."
+        
     return first_line if first_line else "Новий пост"
 
-def telegram_to_fetchrss_style(channel_username, output_file="telegram_feed.xml"):
+def telegram_to_fetchrss_style(ninenka, output_file="telegram_feed.xml"):
     url = f"https://t.me/s/ninenka"
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -80,7 +83,21 @@ def telegram_to_fetchrss_style(channel_username, output_file="telegram_feed.xml"
         link_tag = post.find("a", class_="tgme_widget_message_date")
         post_link = link_tag["href"] if link_tag else f"https://t.me/ninenka"
         
-        text_div = post.find("div", class_="tgme_widget_message_text")
+        # ФІКС ТУТ: Шукаємо реальний текстовий блок, ігноруючи вкладені блоки реплаїв
+        all_text_divs = post.find_all("div", class_="tgme_widget_message_text")
+        text_div = None
+        for div in all_text_divs:
+            parent = div.parent
+            is_inside_reply = False
+            while parent and parent != post:
+                if parent.name == "a" and "tgme_widget_message_reply" in parent.get("class", []):
+                    is_inside_reply = True
+                    break
+                parent = parent.parent
+            
+            if not is_inside_reply:
+                text_div = div
+                break
         
         img_url = None
         photo_wrap = post.find("a", class_="tgme_widget_message_photo_wrap")
@@ -100,38 +117,20 @@ def telegram_to_fetchrss_style(channel_username, output_file="telegram_feed.xml"
             html_content += f'<img src="{img_url}" /><br/>'
             
         if text_div:
-            # 1. Зберігаємо оригінальний HTML для тіла поста
+            # Тепер html_content отримає виключно чистий HTML твого НОВОГО поста
             html_content += "".join([str(c) for c in text_div.contents])
             
-            # 2. Створюємо окрему копію для формування чистого заголовка
             temp_soup = BeautifulSoup(str(text_div), "html.parser")
             
-            # ТОЧКОВИЙ ФІКС: Видаляємо лише автора та текст цитати всередині реплаю, 
-            # але НЕ чіпаємо сам контейнер, якщо твій текст випадково опинився всередині нього.
-            for author in temp_soup.find_all(class_=re.compile(r"author_name", re.I)):
-                author.decompose()
-                
-            for reply_text in temp_soup.find_all(class_=re.compile(r"reply_text", re.I)):
-                reply_text.decompose()
-                
-            # Також прибираємо сервісний лінк-обгортку реплаю, якщо він порожній після чистки
-            for reply_link in temp_soup.find_all("a", class_=re.compile(r"reply", re.I)):
-                # Якщо всередині посилання є корисний текст, який не є цитатою, ми його дістаємо
-                reply_link.unwrap() 
-            
-            # Заміняємо переноси рядків
+            # Про всяк випадок перетворюємо переноси рядків
             for br in temp_soup.find_all("br"):
                 br.replace_with("\n")
             
-            # Отримуємо чистий текст
             plain_text = temp_soup.get_text().strip()
-            
-            # Якщо після очищення текст став порожнім (наприклад, пост складався ТІЛЬКИ з реплаю без твого тексту)
-            if not plain_text:
-                plain_text = "Відповідь на повідомлення"
         else:
             plain_text = "Зображення"
             
+        # Заголовок гарантовано отримає перший абзац саме ТВОГО тексту
         item_title = get_clean_title(plain_text)
             
         time_tag = post.find("time")
@@ -161,7 +160,7 @@ def telegram_to_fetchrss_style(channel_username, output_file="telegram_feed.xml"
     tree = ET.ElementTree(rss)
     ET.indent(tree, space="  ", level=0)
     tree.write(output_file, encoding="utf-8", xml_declaration=True)
-    print(f"Готово! Заголовки очищено від реплаїв. Файл збережено у: {output_file}")
+    print(f"Готово! Розумний та надійний RSS фід збережено у: {output_file}")
 
 if __name__ == "__main__":
     TARGET_CHANNEL = "ninenka" 
