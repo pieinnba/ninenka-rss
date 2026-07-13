@@ -106,20 +106,29 @@ def telegram_to_fetchrss_style(channel_username, output_file="telegram_feed.xml"
             # 2. Створюємо окрему копію для формування чистого заголовка
             temp_soup = BeautifulSoup(str(text_div), "html.parser")
             
-            # РАДИКАЛЬНИЙ ФІКС: Знаходимо БУДЬ-ЯКІ згадки reply в класах або тегах і повністю їх знищуємо
-            for reply_element in temp_soup.find_all(attrs={"class": re.compile(r"reply", re.I)}):
-                reply_element.decompose()
+            # ТОЧКОВИЙ ФІКС: Видаляємо лише автора та текст цитати всередині реплаю, 
+            # але НЕ чіпаємо сам контейнер, якщо твій текст випадково опинився всередині нього.
+            for author in temp_soup.find_all(class_=re.compile(r"author_name", re.I)):
+                author.decompose()
                 
-            # Про всяк випадок додатково шукаємо посилання на інші пости чату (це теж структура реплаю)
-            for reply_link in temp_soup.find_all("a", class_="tgme_widget_message_reply"):
-                reply_link.decompose()
+            for reply_text in temp_soup.find_all(class_=re.compile(r"reply_text", re.I)):
+                reply_text.decompose()
+                
+            # Також прибираємо сервісний лінк-обгортку реплаю, якщо він порожній після чистки
+            for reply_link in temp_soup.find_all("a", class_=re.compile(r"reply", re.I)):
+                # Якщо всередині посилання є корисний текст, який не є цитатою, ми його дістаємо
+                reply_link.unwrap() 
             
             # Заміняємо переноси рядків
             for br in temp_soup.find_all("br"):
                 br.replace_with("\n")
             
-            # Отримуємо чистий текст, де залишився ТІЛЬКИ твій новий пост
-            plain_text = temp_soup.get_text()
+            # Отримуємо чистий текст
+            plain_text = temp_soup.get_text().strip()
+            
+            # Якщо після очищення текст став порожнім (наприклад, пост складався ТІЛЬКИ з реплаю без твого тексту)
+            if not plain_text:
+                plain_text = "Відповідь на повідомлення"
         else:
             plain_text = "Зображення"
             
