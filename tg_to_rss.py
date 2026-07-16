@@ -6,47 +6,45 @@ from datetime import datetime
 import re
 import time
 import os
-import json # Потрібен для формування запиту в Discord
+import json
 
 def get_clean_title(text):
     if not text:
         return "Новий пост"
+    
+    # Беремо перший абзац (до переносу рядка)
     first_line = text.split("\n")[0].strip()
+    
     if len(first_line) > 80:
         first_line = first_line[:80] + "..."
+        
     return first_line if first_line else "Новий пост"
 
-# ФУНКЦІЯ ДЛЯ ВІДПРАВКИ ПОСТУ В DISCORD
 def send_to_discord(webhook_url, post_title, post_url, post_text, image_url, channel_title):
     # Формуємо основний текст повідомлення (заголовок + лінк) над ембедом
     content = f"**{post_title}**\n{post_url}"
     
-    # Обрізаємо текст для ембеду, якщо він занадто довгий (ліміт Discord - 4096 символів)
     if len(post_text) > 4000:
         post_text = post_text[:4000] + "..."
         
-    # Створюємо структуру Embed-повідомлення
     embed = {
-        "description": post_text,           # Основний текст поста
-        "color": 14959146,                  # Колір смужки зліва (червоний, під стиль Nintendo)
+        "description": post_text,
+        "color": 14959146, # Червоний колір Nintendo
         "author": {
-            "name": channel_title           # Ім'я автора (назва каналу) вгорі ембеду
+            "name": channel_title
         }
     }
     
-    # Якщо в пості є картинка, додаємо її як "thumbnail" (маленька картинка справа)
     if image_url:
         embed["thumbnail"] = {
             "url": image_url
         }
         
-    # Формуємо фінальний JSON-пакет для відправки
     payload = {
         "content": content,
         "embeds": [embed]
     }
     
-    # Відправляємо POST-запит на Webhook
     try:
         response = requests.post(
             webhook_url, 
@@ -64,7 +62,7 @@ def telegram_to_fetchrss_style(channel_username, output_file="telegram_feed.xml"
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
-    # Блок завантаження з повторними спробами
+    # Спроби завантаження сторінки
     response = None
     for attempt in range(1, 6):
         try:
@@ -86,7 +84,7 @@ def telegram_to_fetchrss_style(channel_username, output_file="telegram_feed.xml"
         
     soup = BeautifulSoup(response.text, "html.parser")
     
-    # Ініціалізація RSS структури
+    # Ініціалізація RSS
     ET.register_namespace('content', 'http://purl.org/rss/1.0/modules/content/')
     ET.register_namespace('dc', 'http://purl.org/dc/elements/1.1/')
     ET.register_namespace('media', 'http://search.yahoo.com/mrss/')
@@ -126,29 +124,26 @@ def telegram_to_fetchrss_style(channel_username, output_file="telegram_feed.xml"
         ET.SubElement(img_elem, "title").text = channel_title
         ET.SubElement(img_elem, "link").text = f"https://t.me/{channel_username}"
 
-    # ЗЧИТУВАННЯ ІСТОРІЇ: Отримуємо ID останнього відправленого поста з файлу
+    # Зчитуємо ID останнього відправленого поста
     last_sent_post_id = ""
     history_file = "last_post.txt"
     if os.path.exists(history_file):
         with open(history_file, "r") as f:
             last_sent_post_id = f.read().strip()
             
-    # Дістаємо Webhook URL зі змінних оточення (які ми налаштували в GitHub Actions)
     webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
 
     posts = soup.find_all("div", class_="tgme_widget_message")
     
-    # Змінна для збереження найновішого ID під час цього запуску
-    newest_post_id = last_sent_post_id
+    # 1. ЕТАП: Спочатку збираємо та парсимо ВСІ пости хронологічно (від старих до нових)
+    parsed_posts = []
     
-    for post in reversed(posts):
+    for post in posts:
         if "service_message" in post.get("class", []):
             continue
             
         link_tag = post.find("a", class_="tgme_widget_message_date")
         post_link = link_tag["href"] if link_tag else f"https://t.me/{channel_username}"
-        
-        # Витягуємо унікальний ID поста (наприклад, "6000" з "ninenka/6000")
         current_post_id = post.get("data-post", "").split("/")[-1]
         
         all_text_divs = post.find_all("div", class_="tgme_widget_message_text")
@@ -165,10 +160,12 @@ def telegram_to_fetchrss_style(channel_username, output_file="telegram_feed.xml"
                 text_div = div
                 break
         
+        # ШУКАЄМО КАРТИНКУ АБО ПРЕВ'Ю ВІДЕО/ПОСИЛАННЯ
+        # Додано підтримку video_thumb, video_player, roundvideo_thumb (кружечки), та link_preview_image
         img_url = None
-        photo_wrap = post.find("a", class_="tgme_widget_message_photo_wrap")
-        if photo_wrap and "style" in photo_wrap.attrs:
-            style_str = photo_wrap["style"]
+        media_elem = post.find(class_=re.compile(r"(photo_wrap|video_thumb|video_player|roundvideo_thumb|link_preview_image|link_preview_right_image)", re.I))
+        if media_elem and "style" in media_elem.attrs:
+            style_str = media_elem["style"]
             match = re.search(r"url\(['\"]?(.*?)['\"]?\)", style_str)
             if match:
                 img_url = match.group(1)
@@ -186,7 +183,6 @@ def telegram_to_fetchrss_style(channel_username, output_file="telegram_feed.xml"
             html_content += "".join([str(c) for c in text_div.contents])
             temp_soup = BeautifulSoup(str(text_div), "html.parser")
             
-            # Логіка очищення реплаїв (залишається такою, як була)
             reply_text_div = temp_soup.find(class_=re.compile(r"reply_text", re.I))
             reply_text_to_skip = ""
             if reply_text_div:
@@ -203,7 +199,7 @@ def telegram_to_fetchrss_style(channel_username, output_file="telegram_feed.xml"
                 if plain_text.startswith(reply_text_to_skip):
                     plain_text = plain_text.replace(reply_text_to_skip, "", 1).strip()
         else:
-            plain_text = "Зображення"
+            plain_text = "Медіа"
             
         item_title = get_clean_title(plain_text)
             
@@ -214,46 +210,61 @@ def telegram_to_fetchrss_style(channel_username, output_file="telegram_feed.xml"
         else:
             pub_date = formatdate(usegmt=True)
             
+        # Додаємо розпарсені дані у список (вони йдуть від старіших до новіших)
+        parsed_posts.append({
+            "id": current_post_id,
+            "title": item_title,
+            "link": post_link,
+            "plain_text": plain_text,
+            "html_content": html_content,
+            "img_url": img_url,
+            "pub_date": pub_date
+        })
+
+    # 2. ЕТАП: ВІДПРАВКА В DISCORD (Йдемо за хронологією — від старіших до новіших)
+    newest_post_id = last_sent_post_id
+    for p in parsed_posts:
+        p_id = p["id"]
+        if webhook_url and p_id:
+            # Перевіряємо, чи пост дійсно новіший за останній відправлений
+            if not last_sent_post_id or (p_id.isdigit() and last_sent_post_id.isdigit() and int(p_id) > int(last_sent_post_id)):
+                print(f"Відправляємо новий пост {p_id} в Discord по хронології...")
+                send_to_discord(
+                    webhook_url=webhook_url,
+                    post_title=p["title"],
+                    post_url=p["link"],
+                    post_text=p["plain_text"],
+                    image_url=p["img_url"],
+                    channel_title=channel_title
+                )
+                time.sleep(1) # Захист від лімітів Discord
+                newest_post_id = p_id
+
+    # 3. ЕТАП: ЗАПИС В XML-ФАЙЛ (Йдемо у зворотному порядку — від нових до старих, як треба для RSS)
+    for p in reversed(parsed_posts):
         item = ET.SubElement(channel, "item")
-        ET.SubElement(item, "title").text = item_title
-        ET.SubElement(item, "link").text = post_link
-        ET.SubElement(item, "guid", isPermaLink="true").text = post_link
-        ET.SubElement(item, "pubDate").text = pub_date
+        ET.SubElement(item, "title").text = p["title"]
+        ET.SubElement(item, "link").text = p["link"]
+        ET.SubElement(item, "guid", isPermaLink="true").text = p["link"]
+        ET.SubElement(item, "pubDate").text = p["pub_date"]
         ET.SubElement(item, "{http://purl.org/dc/elements/1.1/}creator").text = channel_title
-        ET.SubElement(item, "description").text = html_content
-        ET.SubElement(item, "{http://purl.org/rss/1.0/modules/content/}encoded").text = html_content
+        ET.SubElement(item, "description").text = p["html_content"]
+        ET.SubElement(item, "{http://purl.org/rss/1.0/modules/content/}encoded").text = p["html_content"]
         
-        if img_url:
+        if p["img_url"]:
             ET.SubElement(item, "{http://search.yahoo.com/mrss/}content", {
-                "url": img_url,
+                "url": p["img_url"],
                 "type": "image/jpeg",
                 "medium": "image"
             })
-            
-        # ЛОГІКА ВІДПРАВКИ В DISCORD
-        # Якщо в нас є Webhook, ми знаємо ID поточного поста, 
-        # і цей ID більший за останній збережений в історії (тобто пост дійсно новий)
-        if webhook_url and current_post_id:
-            # Використовуємо .isdigit() на випадок, якщо щось зламається і прийде не число
-            if not last_sent_post_id or (current_post_id.isdigit() and last_sent_post_id.isdigit() and int(current_post_id) > int(last_sent_post_id)):
-                print(f"Відправляємо новий пост {current_post_id} в Discord...")
-                # Викликаємо нашу нову функцію
-                send_to_discord(webhook_url, item_title, post_link, plain_text, img_url, channel_title)
-                
-                # Щоб не спамити Discord запитами (Rate Limit), робимо паузу 1 секунду між постами
-                time.sleep(1)
-                
-                # Оновлюємо найновіший знайдений ID
-                newest_post_id = current_post_id
 
-    # Записуємо RSS файл
+    # Збереження файлу RSS
     tree = ET.ElementTree(rss)
     ET.indent(tree, space="  ", level=0)
     tree.write(output_file, encoding="utf-8", xml_declaration=True)
     print(f"Успішно оновлено! RSS збережено у: {output_file}")
     
-    # ЗБЕРЕЖЕННЯ ІСТОРІЇ: Записуємо ID найсвіжішого поста у файл,
-    # щоб наступного разу скрипт знав, з якого місця починати
+    # Оновлення файлу історії
     if newest_post_id:
         with open(history_file, "w") as f:
             f.write(newest_post_id)
