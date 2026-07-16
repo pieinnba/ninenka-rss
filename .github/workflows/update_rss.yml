@@ -32,9 +32,12 @@ jobs:
         DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
       run: python tg_to_rss.py
 
-    - name: Збереження змін у репозиторій
+    - name: Commit and push changes
       run: |
-        git config --local user.email "github-actions[bot]@users.noreply.github.com"
-        git config --local user.name "github-actions[bot]"
-        git add telegram_feed.xml
-        git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update RSS feed" && git push)
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        # ДОДАЄМО ОБИДВА ФАЙЛИ: і фід, і файл історії
+        git add telegram_feed.xml last_post.txt
+        # Коммітимо зміни (якщо вони є)
+        git commit -m "Auto-update RSS feed and last post ID" || echo "No changes to commit"
+        git push
