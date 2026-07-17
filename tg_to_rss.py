@@ -21,7 +21,7 @@ def get_clean_title(text):
     return first_line if first_line else "Новий пост"
 
 def send_to_discord(webhook_url, post_title, post_url, post_text, image_url, channel_title):
-    # Формуємо основний текст повідомлення (заголовок + лінк)
+    # Формуємо основний текст повідомлення (заголовок + лінк) над ембедом
     content = f"**{post_title}**\n{post_url}"
     
     if len(post_text) > 4000:
@@ -35,6 +35,7 @@ def send_to_discord(webhook_url, post_title, post_url, post_text, image_url, cha
         }
     }
     
+    # Додаємо картинку як маленький thumbnail справа
     if image_url:
         embed["thumbnail"] = {
             "url": image_url
@@ -62,7 +63,7 @@ def telegram_to_fetchrss_style(channel_username, output_file="telegram_feed.xml"
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
-    # Спроби завантаження сторінки
+    # Блок завантаження сторінки з повторами при збоях
     response = None
     for attempt in range(1, 6):
         try:
@@ -84,7 +85,7 @@ def telegram_to_fetchrss_style(channel_username, output_file="telegram_feed.xml"
         
     soup = BeautifulSoup(response.text, "html.parser")
     
-    # Ініціалізація RSS
+    # Ініціалізація RSS структури
     ET.register_namespace('content', 'http://purl.org/rss/1.0/modules/content/')
     ET.register_namespace('dc', 'http://purl.org/dc/elements/1.1/')
     ET.register_namespace('media', 'http://search.yahoo.com/mrss/')
@@ -124,6 +125,7 @@ def telegram_to_fetchrss_style(channel_username, output_file="telegram_feed.xml"
         ET.SubElement(img_elem, "title").text = channel_title
         ET.SubElement(img_elem, "link").text = f"https://t.me/{channel_username}"
 
+    # Зчитуємо історію відправлених постів
     last_sent_post_id = ""
     history_file = "last_post.txt"
     if os.path.exists(history_file):
@@ -131,7 +133,9 @@ def telegram_to_fetchrss_style(channel_username, output_file="telegram_feed.xml"
             last_sent_post_id = f.read().strip()
             
     webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
+
     posts = soup.find_all("div", class_="tgme_widget_message")
+    
     parsed_posts = []
     
     for post in posts:
@@ -156,35 +160,44 @@ def telegram_to_fetchrss_style(channel_username, output_file="telegram_feed.xml"
                 text_div = div
                 break
         
-        # === ІДЕАЛЬНИЙ УНІВЕРСАЛЬНИЙ ПОШУК КАРТИНОК ===
+        # === РОЗУМНИЙ ПОШУК МЕДІА (з ігноруванням аватарок) ===
         img_url = None
         
-        # Перебираємо абсолютно всі елементи всередині поста
-        for elem in post.find_all(True):
-            classes = elem.get("class", [])
-            class_str = " ".join(classes).lower()
+        # Перевіряємо тільки теги, які потенційно можуть містити зображення
+        for elem in post.find_all(["a", "div", "i", "img"]):
             
-            # Жорстко відсікаємо аватарки каналів та емодзі
-            if "user_pic" in class_str or "emoji" in class_str:
+            # Перевіряємо сам елемент та ВСІХ його батьків аж до верху поста
+            is_bad = False
+            curr = elem
+            while curr and curr != post:
+                c_str = " ".join(curr.get("class", [])).lower()
+                # user_pic/user_photo - аватарки
+                # emoji - системні смайлики Telegram
+                # reply - прев'ю старого поста, на який ми відповідаємо
+                # author - аватарки автора репосту
+                if any(bad in c_str for bad in ["user_pic", "user_photo", "emoji", "reply", "author"]):
+                    is_bad = True
+                    break
+                curr = curr.parent
+                
+            # Якщо елемент потрапив до "забороненої зони", переходимо до наступного
+            if is_bad:
                 continue
                 
-            # Перевірка 1: Telegram найчастіше зашиває фото в стилі 'background-image'
-            if "style" in elem.attrs:
-                style_str = elem["style"]
-                if "background-image" in style_str:
-                    match = re.search(r"url\(['\"]?(.*?)['\"]?\)", style_str, re.I)
-                    if match:
-                        url_str = match.group(1)
-                        # Якщо лінк починається з //, додаємо https: для Discord
-                        if url_str.startswith("//"):
-                            url_str = "https:" + url_str
-                        img_url = url_str
-                        break # Знайшли зображення — виходимо з циклу
-                        
-            # Перевірка 2: Рідкісні прев'ю, які Telegram віддає як звичайні <img>
+            # Перевірка на background-image
+            if "style" in elem.attrs and "background-image" in elem["style"]:
+                match = re.search(r"url\(['\"]?(.*?)['\"]?\)", elem["style"], re.I)
+                if match:
+                    url_str = match.group(1)
+                    if url_str.startswith("//"):
+                        url_str = "https:" + url_str
+                    img_url = url_str
+                    break
+                    
+            # Перевірка на стандартний img
             if elem.name == "img" and "src" in elem.attrs:
                 url_str = elem["src"]
-                # Захист від системних іконок в base64 та вбудованих емодзі
+                # Додатковий захист від base64 та вбудованих іконок
                 if not url_str.startswith("data:") and "emoji" not in url_str:
                     if url_str.startswith("//"):
                         url_str = "https:" + url_str
